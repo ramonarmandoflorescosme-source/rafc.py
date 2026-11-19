@@ -2,13 +2,10 @@ import streamlit as st
 import streamlit.components.v1 as components
 from datetime import date
 from html import escape
-import ast
-import operator
-import re
 
 # ============================================================
 # RAFC 2026 - SISTEMA DE LIQUIDACION DE ARROZ
-# Version Streamlit: interfaz, liquidacion y calculadora normal
+# Version Streamlit: interfaz y liquidacion
 # ============================================================
 
 st.set_page_config(
@@ -55,10 +52,6 @@ if "pagina" not in st.session_state:
     st.session_state.pagina = "liquidacion"
 if "resultado_liquidacion" not in st.session_state:
     st.session_state.resultado_liquidacion = None
-if "calc_expr" not in st.session_state:
-    st.session_state.calc_expr = "0"
-if "calc_just_evaluated" not in st.session_state:
-    st.session_state.calc_just_evaluated = False
 
 # --------------------- FUNCIONES DE APOYO --------------------
 def formato_rd(valor):
@@ -76,113 +69,6 @@ def banner_principal():
         """,
         unsafe_allow_html=True,
     )
-
-
-def evaluar_expresion_segura(expresion):
-    """Evalua solo numeros y operaciones aritmeticas basicas; no usa eval()."""
-    operadores = {
-        ast.Add: operator.add,
-        ast.Sub: operator.sub,
-        ast.Mult: operator.mul,
-        ast.Div: operator.truediv,
-        ast.USub: operator.neg,
-        ast.UAdd: operator.pos,
-    }
-
-    def recorrer(nodo):
-        if isinstance(nodo, ast.Expression):
-            return recorrer(nodo.body)
-        if isinstance(nodo, ast.Constant) and isinstance(nodo.value, (int, float)):
-            return nodo.value
-        if isinstance(nodo, ast.BinOp) and type(nodo.op) in operadores:
-            izquierda = recorrer(nodo.left)
-            derecha = recorrer(nodo.right)
-            if isinstance(nodo.op, ast.Div) and derecha == 0:
-                raise ZeroDivisionError
-            return operadores[type(nodo.op)](izquierda, derecha)
-        if isinstance(nodo, ast.UnaryOp) and type(nodo.op) in operadores:
-            return operadores[type(nodo.op)](recorrer(nodo.operand))
-        raise ValueError("Operacion no permitida")
-
-    arbol = ast.parse(expresion, mode="eval")
-    return recorrer(arbol)
-
-
-def pulsar_calculadora(tecla):
-    actual = st.session_state.calc_expr
-    operadores = "+-*/"
-
-    if tecla == "AC":
-        st.session_state.calc_expr = "0"
-        st.session_state.calc_just_evaluated = False
-        return
-
-    if tecla == "⌫":
-        st.session_state.calc_expr = actual[:-1] or "0"
-        st.session_state.calc_just_evaluated = False
-        return
-
-    if tecla == "=":
-        try:
-            resultado = evaluar_expresion_segura(actual)
-            if not (float("-inf") < float(resultado) < float("inf")):
-                raise ValueError
-            st.session_state.calc_expr = str(round(resultado, 10))
-            st.session_state.calc_just_evaluated = True
-        except ZeroDivisionError:
-            st.session_state.calc_expr = "Error: division entre cero"
-            st.session_state.calc_just_evaluated = True
-        except Exception:
-            st.session_state.calc_expr = "Error"
-            st.session_state.calc_just_evaluated = True
-        return
-
-    if tecla == "%":
-        coincidencia = re.search(r"(\d+(?:\.\d*)?|\.\d+)$", actual)
-        if coincidencia:
-            numero = float(coincidencia.group(1)) / 100
-            st.session_state.calc_expr = actual[:coincidencia.start()] + str(numero)
-        st.session_state.calc_just_evaluated = False
-        return
-
-    if tecla == "±":
-        coincidencia = re.search(r"(\d+(?:\.\d*)?|\.\d+)$", actual)
-        if coincidencia:
-            numero = float(coincidencia.group(1))
-            cambiado = str(-numero if numero >= 0 else abs(numero))
-            st.session_state.calc_expr = actual[:coincidencia.start()] + cambiado
-        elif actual == "0":
-            st.session_state.calc_expr = "-"
-        st.session_state.calc_just_evaluated = False
-        return
-
-    if tecla in operadores:
-        if actual in ("Error", "Error: division entre cero"):
-            actual = "0"
-        if actual[-1:] in operadores:
-            actual = actual[:-1]
-        st.session_state.calc_expr = actual + tecla
-        st.session_state.calc_just_evaluated = False
-        return
-
-    if tecla == ".":
-        if st.session_state.calc_just_evaluated:
-            actual = "0"
-        ultimo_numero = re.split(r"[+\-*/]", actual)[-1]
-        if "." not in ultimo_numero:
-            st.session_state.calc_expr = actual + "."
-        st.session_state.calc_just_evaluated = False
-        return
-
-    # Digitos, incluyendo 00
-    if tecla.isdigit():
-        if actual in ("Error", "Error: division entre cero") or st.session_state.calc_just_evaluated:
-            actual = "0"
-        if actual == "0":
-            st.session_state.calc_expr = tecla if tecla != "00" else "0"
-        else:
-            st.session_state.calc_expr = actual + tecla
-        st.session_state.calc_just_evaluated = False
 
 
 def crear_recibo_html(datos):
@@ -276,9 +162,6 @@ with st.sidebar:
     st.markdown("---")
     if st.button("🌾  Nueva Liquidación", use_container_width=True):
         st.session_state.pagina = "liquidacion"
-        st.rerun()
-    if st.button("▦  Calculadora", use_container_width=True):
-        st.session_state.pagina = "calculadora"
         st.rerun()
     if st.button("ⓘ  Acerca de RAFC", use_container_width=True):
         st.session_state.pagina = "acerca"
@@ -385,35 +268,6 @@ if st.session_state.pagina == "liquidacion":
 
         st.markdown("### Vista previa del recibo")
         components.html(crear_recibo_html(datos), height=1000, scrolling=True)
-
-# ----------------------- CALCULADORA NORMAL -----------------
-elif st.session_state.pagina == "calculadora":
-    banner_principal()
-    st.markdown("## 🧮 Calculadora")
-    st.caption("Calculadora normal independiente de la liquidación de arroz.")
-    with st.container(border=True):
-        st.markdown(
-            f"<div style='background:#edf4ea;border:1px solid #cbdcc7;border-radius:12px;padding:18px;text-align:right;font-size:34px;font-weight:800;color:#173c22;overflow-wrap:anywhere'>{escape(st.session_state.calc_expr)}</div>",
-            unsafe_allow_html=True,
-        )
-        st.write("")
-        teclas = [
-            ["AC", "±", "%", "/"],
-            ["7", "8", "9", "*"],
-            ["4", "5", "6", "-"],
-            ["1", "2", "3", "+"],
-            ["⌫", "0", ".", "="],
-        ]
-        simbolos = {"/": "÷", "*": "×", "-": "−", "+": "+"}
-        for fila in teclas:
-            columnas = st.columns(4, gap="small")
-            for i, tecla in enumerate(fila):
-                with columnas[i]:
-                    etiqueta = simbolos.get(tecla, tecla)
-                    tipo = "primary" if tecla == "=" else "secondary"
-                    if st.button(etiqueta, key=f"tecla_{tecla}_{len(fila)}_{fila[0]}", use_container_width=True, type=tipo):
-                        pulsar_calculadora(tecla)
-                        st.rerun()
 
 # --------------------------- ACERCA --------------------------
 elif st.session_state.pagina == "acerca":
